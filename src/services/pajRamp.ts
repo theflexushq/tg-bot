@@ -37,37 +37,33 @@ function ensureInitialized() {
   console.log(`📡 PAJ SDK initialized on ${env}`);
 }
 
-// ── Virtual Account (Bank Transfer Onramp) ────────────────────
+import { LIQUIDITY_CONFIG } from '../config/liquidity.js';
+
+// ... (existing imports)
 
 /**
- * Generates a temporary virtual account for a specific deposit amount.
+ * Generates a virtual account for a deposit.
+ * If LIQUIDITY_MODE is PAJ_MANAGED, it creates a full Ramp Order (PAJ delivers crypto).
  */
 export async function getVirtualAccount(req: { 
   amount_ngn: number; 
   reference: string;
-  recipient: string; 
+  recipient: string;
+  mint?: string; // Optional target crypto mint
 }): Promise<PajRampResponse> {
   ensureInitialized();
 
-  if (!SESSION_TOKEN) {
-    console.error('❌ PAJ_SESSION_TOKEN is missing from .env');
-    return {
-      success: false,
-      reference: req.reference,
-      message: 'Authentication missing. Please run scripts/paj-login.ts',
-    };
-  }
-
-  console.log(`🏦 Requesting virtual account for ${req.amount_ngn} NGN | Ref: ${req.reference}`);
+  const mint = req.mint || USDC_MINT;
+  const liquidityMode = LIQUIDITY_CONFIG.USDC;
+  console.log(`🏦 [Liquidity: ${liquidityMode}] Requesting deposit details for ${req.amount_ngn} NGN | Token: ${mint} | Ref: ${req.reference}`);
 
   try {
-    // Timeout wrapper to prevent hanging
     const createOrderPromise = PajSDK.createOnrampOrder(
       {
         fiatAmount: req.amount_ngn,
         currency: 'NGN',
         recipient: req.recipient,
-        mint: USDC_MINT,
+        mint: mint,
         chain: PajSDK.Chain.SOLANA,
         webhookURL: WEBHOOK_URL,
         fee: 0,
@@ -80,12 +76,11 @@ export async function getVirtualAccount(req: {
     );
 
     const order = await Promise.race([createOrderPromise, timeoutPromise]);
-    console.log('✅ Order created:', (order as any).id);
-
+    
     return {
       success: true,
       reference: req.reference,
-      message: 'Virtual account generated',
+      message: `Virtual account generated (${liquidityMode})`,
       data: {
         bank_name: (order as any).bank,
         account_number: (order as any).accountNumber,
@@ -94,11 +89,11 @@ export async function getVirtualAccount(req: {
       },
     };
   } catch (err: any) {
-    console.error('[pajRamp] getVirtualAccount error details:', err?.response?.data || err);
+    console.error('[pajRamp] getVirtualAccount error:', err?.message || err);
     return {
       success: false,
       reference: req.reference,
-      message: err?.message || 'Failed to generate virtual account',
+      message: err?.message || 'Failed to generate deposit details',
     };
   }
 }
@@ -244,9 +239,9 @@ export async function buyCrypto(req: PajRampOnrampRequest): Promise<PajRampRespo
 // ── Rates ─────────────────────────────────────────────────────
 
 /**
- * Returns the current NGN/USDC onramp rate from PAJ SDK.
+ * Returns the current NGN/Crypto onramp rate from PAJ SDK.
  */
-export async function getOnrampRate(): Promise<number | null> {
+export async function getOnrampRate(mint?: string): Promise<number | null> {
   ensureInitialized();
   if (!SESSION_TOKEN) return null;
 
@@ -254,11 +249,11 @@ export async function getOnrampRate(): Promise<number | null> {
     const res = await PajSDK.getOnrampValue({
       amount: 1,
       currency: PajSDK.Currency.USD,
-      mint: USDC_MINT
+      mint: mint || USDC_MINT
     }, SESSION_TOKEN);
     return res.rate;
   } catch (err) {
-    console.error('[pajRamp] getOnrampRate failed:', err);
+    console.error(`[pajRamp] getOnrampRate failed for ${mint || 'USDC'}:`, err);
     return null;
   }
 }

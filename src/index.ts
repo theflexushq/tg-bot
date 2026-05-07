@@ -21,6 +21,10 @@ import {
   sellConversation,
   sellHandler,
   profileHandler,
+  sendConversation,
+  sendHandler,
+  receiveHandler,
+  generateStealthHandler,
 } from './handlers/commands.js';
 import { addBankConversation } from './features/offramp/addBank.js';
 import { startTransactionWatcher } from './services/watcher.js';
@@ -48,6 +52,14 @@ for (const key of requiredEnv) {
 
 const bot = new Bot<BotContext>(process.env.TELEGRAM_BOT_TOKEN!);
 
+// DIAGNOSTIC LOGGER: Absolutely first middleware
+bot.use(async (ctx, next) => {
+  if (ctx.callbackQuery) {
+    console.log(`[TOP-LOG] Callback: ${ctx.callbackQuery.data} from ${ctx.from?.id}`);
+  }
+  return next();
+});
+
 // Session middleware (in-memory — swap for Redis/Supabase in production)
 bot.use(
   session<SessionData, BotContext>({
@@ -66,6 +78,7 @@ bot.use(createConversation(exportConversation, 'exportConversation'));
 bot.use(createConversation(depositConversation, 'depositConversation'));
 bot.use(createConversation(sellConversation, 'sellConversation'));
 bot.use(createConversation(addBankConversation, 'addBankConversation'));
+bot.use(createConversation(sendConversation, 'sendConversation'));
 
 // ── Commands ──────────────────────────────────────────────────
 
@@ -81,10 +94,35 @@ bot.command('export', exportHandler);
 bot.command('deposit', depositHandler);
 bot.command('sell', sellHandler);
 bot.command('profile', profileHandler);
-bot.on('message:text', async (ctx, next) => {
-  if (ctx.message.text.toLowerCase() === 'profile') {
-    return profileHandler(ctx);
+bot.command('receive', receiveHandler);
+bot.command('qrcode', receiveHandler);
+bot.command('send', sendHandler);
+bot.on(['message:text', 'edit:text'], async (ctx, next) => {
+  const text = ctx.message?.text || ctx.editedMessage?.text;
+  if (!text) return next();
+
+  const lowerText = text.toLowerCase().trim();
+  
+  // Standalone word mappings
+  const handlers: Record<string, Function> = {
+    'profile': profileHandler,
+    'export': exportHandler,
+    'balance': balanceHandler,
+    'wallet': walletHandler,
+    'deposit': depositHandler,
+    'onramp': depositHandler, // Alias для deposit
+    'sell': sellHandler,
+    'offramp': sellHandler,
+    'send': sendHandler,
+    'transfer': sendHandler,
+    'receive': receiveHandler,
+    'qrcode': receiveHandler,
+  };
+
+  if (handlers[lowerText]) {
+    return handlers[lowerText](ctx);
   }
+
   return next();
 });
 bot.command('addbank', async (ctx) => {
@@ -92,6 +130,12 @@ bot.command('addbank', async (ctx) => {
 });
 
 // ── Callbacks ────────────────────────────────────────────────
+
+bot.on('callback_query:data', async (ctx, next) => {
+  console.log(`[glob] Callback received: ${ctx.callbackQuery.data} from ${ctx.from.id}`);
+  return next();
+});
+
 bot.callbackQuery('delete_this_msg', async (ctx) => {
   try {
     if (ctx.chat) await ctx.api.deleteMessage(ctx.chat.id, ctx.callbackQuery.message!.message_id);
@@ -101,12 +145,17 @@ bot.callbackQuery('delete_this_msg', async (ctx) => {
   }
 });
 
+bot.callbackQuery('generate_stealth', generateStealthHandler);
+
 // ── Message handler ───────────────────────────────────────────
 // Any non-command text message goes through AI parsing
 
-bot.on('message:text', async (ctx) => {
+bot.on(['message:text', 'edit:text'], async (ctx) => {
+  const text = ctx.message?.text || ctx.editedMessage?.text;
+  if (!text) return;
+
   // Skip messages that are commands
-  if (ctx.message.text.startsWith('/')) return;
+  if (text.startsWith('/')) return;
   await handleUserMessage(ctx);
 });
 
@@ -122,20 +171,26 @@ async function main() {
   console.log('🚀 Starting Solana Telegram bot...');
   startTransactionWatcher(bot);
 
-  // Set bot commands menu in Telegram
-  await bot.api.setMyCommands([
-    { command: 'start', description: 'Set up or view your wallet' },
-    { command: 'balance', description: 'Check your USDC balance' },
-    { command: 'wallet', description: 'View your deposit address' },
-    { command: 'history', description: 'Recent transactions' },
-    { command: 'changepin', description: 'Change your PIN' },
-    { command: 'export', description: 'Export your Private Key (Secret)' },
-    { command: 'deposit', description: 'Fund your wallet with Naira' },
-    { command: 'sell', description: 'Sell crypto for Naira (Offramp)' },
-    { command: 'profile', description: 'View your bank and transaction stats' },
-    { command: 'addbank', description: 'Save your bank for fast payouts' },
-    { command: 'help', description: 'How to use this bot' },
-  ]);
+  // Set bot commands menu in Telegram (non-critical, wrap in try-catch)
+  try {
+    await bot.api.setMyCommands([
+      { command: 'start', description: 'Set up or view your wallet' },
+      { command: 'balance', description: 'Check your USDC balance' },
+      { command: 'deposit', description: 'Fund your wallet with Naira' },
+      { command: 'sell', description: 'Sell crypto for Naira (Offramp)' },
+      { command: 'send', description: 'Send USDC or SOL to an address' },
+      { command: 'receive', description: 'Show your wallet QR code' },
+      { command: 'wallet', description: 'Your deposit address' },
+      { command: 'history', description: 'Recent transactions' },
+      { command: 'changepin', description: 'Change your PIN' },
+      { command: 'export', description: 'Export your Private Key (Secret)' },
+      { command: 'profile', description: 'View your bank and transaction stats' },
+      { command: 'addbank', description: 'Save your bank for fast payouts' },
+      { command: 'help', description: 'How to use this bot' },
+    ]);
+  } catch (err) {
+    console.warn('⚠️ Could not set bot commands menu:', err);
+  }
 
   await bot.start({
     onStart: (info) => console.log(`✅ Bot running as @${info.username}`),

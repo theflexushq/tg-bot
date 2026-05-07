@@ -1,12 +1,14 @@
 // src/handlers/commands.ts
 // Utility commands: /balance, /wallet, /history, /help, /changepin
 
+import { Context, InlineKeyboard } from 'grammy';
 import { BotContext } from '../types/context.js';
 import { getUsdcBalance, getSolBalance } from '../services/solana.js';
 import { getTransactionHistory, getTransactionStats } from '../services/transactions.js';
 import { shortAddress, formatNGN, isValidPin } from '../utils/helpers.js';
 import { Conversation } from '@grammyjs/conversations';
 import { setPin, verifyPin, getWallet } from '../services/wallet.js';
+import { createStealthReceiver } from '../services/stealth.js';
 
 /**
  * /profile: Shows saved bank and transaction stats.
@@ -48,7 +50,6 @@ export async function profileHandler(ctx: BotContext): Promise<void> {
 }
 import { getClusterForAction } from '../config/networks.js';
 import { decrypt } from '../utils/crypto.js';
-import { InlineKeyboard } from 'grammy';
 import { executeDeposit } from '../features/onramp/handler.js';
 import { executeOfframp } from '../features/offramp/handler.js';
 
@@ -78,12 +79,17 @@ export async function balanceHandler(ctx: BotContext): Promise<void> {
     await ctx.api.deleteMessage(ctx.chat.id, loadingMsg.message_id).catch(() => null);
   }
 
+  const solDisplay = sol > 0 ? `${sol.toFixed(6)} SOL` : `0 SOL ⚠️`;
+  const solNote = sol > 0
+    ? `_Small amount sent by PAJ to cover network fees._`
+    : `_No SOL yet. PAJ will send a small amount with your next deposit._`;
+
   await ctx.reply(
     `💼 *Your Wallet Balance* (${networkName})\n\n` +
     `💵 *USDC:* ${usdc.toFixed(4)} USDC\n` +
-    `◎ *SOL (for fees):* ${sol.toFixed(4)} SOL\n\n` +
-    `📥 *Deposit address:*\n\`${wallet.solana_public_key}\`\n\n` +
-    `_USDC is used for all transactions._`,
+    `◎ *SOL (for fees):* ${solDisplay}\n` +
+    // `${solNote}\n\n` +
+    `📥 *Deposit address:*\n\`${wallet.solana_public_key}\``,
     { parse_mode: 'Markdown' },
   );
 }
@@ -175,6 +181,8 @@ export async function helpHandler(ctx: BotContext): Promise<void> {
     `/balance — Check your USDC balance\n` +
     `/deposit — Fund your wallet with Naira\n` +
     `/sell — Sell crypto for Naira (Offramp)\n` +
+    `/send — Send crypto to any address\n` +
+    `/receive — Show your wallet QR code\n` +
     `/wallet — Your deposit address\n` +
     `/history — Recent transactions\n` +
     `/changepin — Change your 4-digit PIN\n` +
@@ -183,7 +191,7 @@ export async function helpHandler(ctx: BotContext): Promise<void> {
     `• _"Deposit 5000"_\n` +
     `• _"Buy ₦1000 airtime for 08012345678"_\n` +
     `• _"Send 100 USDC to 7A2r..."_\n` +
-    // `• _"Receive with QR Code"_\n` +
+    `• _"Receive with QR Code"_\n` +
     // `• _"Get 1GB data for 09087654321"_\n` +
     // `• _"Recharge 2k Glo data for 08087654321"_\n\n` +
     // `*Supported networks:* MTN, Glo, Airtel, 9Mobile\n`,
@@ -449,4 +457,132 @@ export async function sellConversation(
 
 export async function sellHandler(ctx: BotContext): Promise<void> {
   await ctx.conversation.enter('sellConversation');
+}
+
+/**
+ * /receive: Displays user's address and a QR code.
+ */
+export async function receiveHandler(ctx: BotContext): Promise<void> {
+  const telegramId = String(ctx.from?.id);
+  const wallet = await getWallet(telegramId);
+
+  if (!wallet) {
+    await ctx.reply('No wallet found. Use /start to set up.');
+    return;
+  }
+
+  const address = wallet.solana_public_key;
+  const qrUrl = `https://quickchart.io/qr?text=${address}&size=300&margin=1`;
+
+  const keyboard = new InlineKeyboard()
+    .text('🤫 Generate Stealth Address', 'generate_stealth');
+
+  await ctx.replyWithPhoto(qrUrl, {
+    caption:
+      `🛡️ *Privacy-Protected Address*\n\n` +
+      `Your Solana Address:\n\`${address}\`\n\n` +
+      `You can receive SOL and USDC here. Transactions are automatically shielded via *Umbra Privacy* for your security.\n\n` +
+      `💡 *Top-Tier Privacy:* Use a "Stealth Address" below to generate a one-time link that leaves no on-chain trace to this wallet.`,
+    reply_markup: keyboard,
+    parse_mode: 'Markdown',
+  });
+}
+
+/**
+ * Handles generating a one-time stealth address.
+ */
+export async function generateStealthHandler(ctx: Context): Promise<void> {
+  const telegramId = String(ctx.from?.id);
+
+  try {
+    const stealth = await createStealthReceiver(telegramId);
+
+    await ctx.editMessageCaption({
+      caption:
+        `🤫 *Stealth Address Generated*\n\n` +
+        `This is a temporary, one-time address:\n` +
+        `\`${stealth.solana_public_key}\`\n\n` +
+        `✅ *How it works:*\n` +
+        `1. Give this address to the sender.\n` +
+        `2. When funds arrive, our bot detects them.\n` +
+        `3. We privately route them to your main wallet using the Umbra Mixer.\n` +
+        `4. *No on-chain link* will exist between this address and your main wallet.\n\n` +
+        `⏳ _Monitoring active for this address..._`,
+      parse_mode: 'Markdown'
+    });
+
+    await ctx.answerCallbackQuery('Stealth address generated!');
+  } catch (err) {
+    console.error(`[stealth] Generation failed:`, err);
+    await ctx.answerCallbackQuery('Failed to generate stealth address. Try again later.');
+  }
+}
+
+// ── /send conversation ────────────────────────────────────────
+
+import { executeTransfer } from '../features/transfer/handler.js';
+import { isValidSolanaAddress } from '../utils/helpers.js';
+
+export async function sendConversation(
+  conversation: Conversation<BotContext>,
+  ctx: BotContext,
+): Promise<void> {
+  const telegramId = String(ctx.from?.id);
+  const wallet = await conversation.external(() => getWallet(telegramId));
+  if (!wallet) return;
+
+  // 1. Token Selection
+  const tokenKeyboard = new InlineKeyboard()
+    .text('USDC', 'send_USDC')
+    .text('SOL', 'send_SOL')
+    .row()
+    .text('❌ Cancel', 'cancel_send');
+
+  await ctx.reply('💸 *Send Crypto*\n\nWhich token would you like to send?', {
+    parse_mode: 'Markdown',
+    reply_markup: tokenKeyboard
+  });
+
+  const callbackCtx = await conversation.waitForCallbackQuery(['send_USDC', 'send_SOL', 'cancel_send']);
+  await callbackCtx.answerCallbackQuery();
+
+  if (callbackCtx.callbackQuery.data === 'cancel_send') {
+    await ctx.reply('❌ Send cancelled.');
+    return;
+  }
+
+  const token = callbackCtx.callbackQuery.data.split('_')[1] as 'USDC' | 'SOL';
+
+  // 2. Amount
+  await ctx.reply(`💰 *How much ${token} would you like to send?*`, { parse_mode: 'Markdown' });
+  let amount: number;
+  while (true) {
+    const msg = await conversation.waitFor('message:text');
+    const input = msg.msg.text.trim().replace(/[^0-9.]/g, '');
+    amount = parseFloat(input);
+    if (!isNaN(amount) && amount > 0) break;
+    await ctx.reply('❌ Invalid amount. Please enter a number (e.g. 10.5):');
+  }
+
+  // 3. Recipient Address
+  await ctx.reply(`👤 *Enter the recipient's Solana address:*`, { parse_mode: 'Markdown' });
+  let recipient: string;
+  while (true) {
+    const msg = await conversation.waitFor('message:text');
+    recipient = msg.msg.text.trim();
+    if (isValidSolanaAddress(recipient)) break;
+    await ctx.reply('❌ Invalid Solana address. Please try again:');
+  }
+
+  // 4. Delegate to the core transfer handler
+  await executeTransfer(conversation, ctx, {
+    action: 'TRANSFER',
+    amount,
+    token,
+    recipient,
+  }, wallet);
+}
+
+export async function sendHandler(ctx: BotContext): Promise<void> {
+  await ctx.conversation.enter('sendConversation');
 }

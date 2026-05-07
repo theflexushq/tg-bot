@@ -10,12 +10,23 @@ export interface UserWallet {
   pin_set: boolean;
   pin_failed_attempts: number;
   pin_locked_until: string | null;
+  umbra_registered: boolean;
   // Saved Bank Details
   saved_bank_name: string | null;
   saved_account_number: string | null;
   saved_recipient_name: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface StealthReceiver {
+  id: string;
+  telegram_id: string;
+  solana_public_key: string;
+  encrypted_private_key: string;
+  active: boolean;
+  last_checked_at: string;
+  created_at: string;
 }
 
 export interface Transaction {
@@ -31,6 +42,7 @@ export interface Transaction {
   network: NigerianNetwork | null;
   status: TransactionStatus;
   cluster: SolanaCluster;
+  is_stealth: boolean;
   paj_ramp_reference: string | null;
   error_message: string | null;
   // Analytics
@@ -95,7 +107,9 @@ export interface BuyUsdcIntent {
 
 export interface DepositIntent {
   action: 'DEPOSIT';
-  amount_ngn: number;
+  amount_ngn?: number;         // Fiat amount in NGN (when user specifies NGN)
+  amount?: number;             // Target crypto amount (e.g. 1 USDC, 0.1 SOL)
+  token?: 'USDC' | 'SOL';     // Target token (defaults to USDC)
 }
 
 export interface UnknownIntent {

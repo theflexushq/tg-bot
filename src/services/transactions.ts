@@ -21,6 +21,7 @@ export async function createTransaction(params: {
   bankName?: string;
   recipientName?: string;
   recipientAddress?: string;
+  isStealth?: boolean;
 }): Promise<Transaction> {
   const { data, error } = await db()
     .from('transactions')
@@ -37,6 +38,7 @@ export async function createTransaction(params: {
       bank_name: params.bankName ?? null,
       recipient_name: params.recipientName ?? null,
       recipient_address: params.recipientAddress ?? null,
+      is_stealth: params.isStealth ?? false,
       status: 'pending',
     })
     .select()
@@ -55,15 +57,17 @@ export async function updateTransaction(
     errorMessage: string | null;
     botMessageId: number;
     chatId: number;
+    isStealth: boolean;
   }>,
 ): Promise<void> {
   const mapped: Record<string, unknown> = {};
   if (updates.status) mapped.status = updates.status;
   if (updates.solanaTxSignature) mapped.solana_tx_signature = updates.solanaTxSignature;
   if (updates.pajRampReference) mapped.paj_ramp_reference = updates.pajRampReference;
-  if (updates.errorMessage) mapped.error_message = updates.errorMessage;
-  if (updates.botMessageId) mapped.bot_message_id = updates.botMessageId;
-  if (updates.chatId) mapped.chat_id = updates.chatId;
+  if (updates.errorMessage !== undefined) mapped.error_message = updates.errorMessage;
+  if (updates.botMessageId !== undefined) mapped.bot_message_id = updates.botMessageId;
+  if (updates.chatId !== undefined) mapped.chat_id = updates.chatId;
+  if (updates.isStealth !== undefined) mapped.is_stealth = updates.isStealth;
 
   const { error } = await db()
     .from('transactions')

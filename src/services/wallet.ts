@@ -33,8 +33,9 @@ export async function createWallet(
       telegram_username: username,
       solana_public_key: publicKey,
       encrypted_private_key: encryptedPrivateKey,
-      pin_set: false,
+       pin_set: false,
       pin_failed_attempts: 0,
+      umbra_registered: false,
     })
     .select()
     .single();
@@ -54,6 +55,15 @@ export async function getWallet(telegramId: string): Promise<UserWallet | null> 
 
   if (error) throw new Error(`Failed to fetch wallet: ${error.message}`);
   return data as UserWallet | null;
+}
+
+export async function getAllWallets(): Promise<UserWallet[]> {
+  const { data, error } = await supabase()
+    .from('user_wallets')
+    .select('id, telegram_id, solana_public_key, created_at');
+
+  if (error) throw new Error(`Failed to fetch all wallets: ${error.message}`);
+  return data as UserWallet[];
 }
 
 // ── Decrypt (signing only) ────────────────────────────────────
@@ -144,6 +154,15 @@ async function resetPinAttempts(telegramId: string): Promise<void> {
     .from('user_wallets')
     .update({ pin_failed_attempts: 0, pin_locked_until: null })
     .eq('telegram_id', telegramId);
+}
+
+export async function updateUmbraRegistration(telegramId: string, status: boolean): Promise<void> {
+  const { error } = await supabase()
+    .from('user_wallets')
+    .update({ umbra_registered: status })
+    .eq('telegram_id', telegramId);
+
+  if (error) throw new Error(`Failed to update Umbra registration: ${error.message}`);
 }
 
 export async function isPinLocked(wallet: UserWallet): Promise<{ locked: boolean; minutesLeft?: number }> {

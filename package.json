@@ -10,19 +10,24 @@
     "lint": "eslint src --ext .ts"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@grammyjs/conversations": "^1.2.0",
     "@grammyjs/menu": "^1.2.1",
     "@solana/spl-token": "^0.4.9",
     "@solana/web3.js": "^1.98.4",
     "@supabase/supabase-js": "^2.45.0",
+    "@umbra-privacy/sdk": "^4.0.0",
+    "@umbra-privacy/web-zk-prover": "^2.0.1",
     "axios": "^1.7.7",
     "bcryptjs": "^2.4.3",
     "bs58": "^6.0.0",
+    "circomlibjs": "^0.1.7",
     "dotenv": "^16.4.5",
     "grammy": "^1.26.0",
     "node-cron": "^3.0.3",
     "openai": "^4.57.0",
-    "paj_ramp": "^1.0.0"
+    "paj_ramp": "^1.0.0",
+    "snarkjs": "^0.7.6"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

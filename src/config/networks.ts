@@ -24,7 +24,7 @@ export const FEATURE_NETWORKS: NetworkConfig = {
 export function getClusterForAction(action: string): SolanaCluster {
   if (action === 'TRANSFER') return FEATURE_NETWORKS.TRANSFER;
   if (action === 'OFFRAMP') return FEATURE_NETWORKS.OFFRAMP;
-  if (action === 'BUY_USDC') return FEATURE_NETWORKS.ONRAMP;
+  if (action === 'BUY_USDC' || action === 'DEPOSIT') return FEATURE_NETWORKS.ONRAMP;
   if (action === 'BUY_AIRTIME' || action === 'BUY_DATA' || action === 'PAY_BILL') return FEATURE_NETWORKS.UTILITY;
   return 'devnet'; // Fallback
 }

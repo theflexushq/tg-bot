@@ -22,6 +22,9 @@ export async function executeOfframp(
 ): Promise<void> {
   const telegramId = String(ctx.from?.id);
   const cluster = getClusterForAction('OFFRAMP');
+  const sessionEpoch = Date.now(); // Used to detect if a restart happened mid-flow
+  
+  console.log(`[IRON-OFFRAMP] Session ${sessionEpoch} started for user ${telegramId}`);
 
   // ── Step 0: Handle Naira Conversion ──────────────────
   let quoteDetails = '';
@@ -46,7 +49,8 @@ export async function executeOfframp(
   if (!intent.bank_name) {
     // 🔍 FAST OFFRAMP: Check for saved bank
     if (wallet.saved_bank_name && wallet.saved_account_number) {
-      await ctx.reply(
+      console.log(`[offramp] Saved bank detected for user ${telegramId}`);
+      const fastOfframpMsg = await ctx.reply(
         `🪄 *Fast Offramp Detected!*\n\n` +
         `Send to your saved bank account?\n` +
         `🏛️ *Bank:* ${wallet.saved_bank_name}\n` +
@@ -64,13 +68,21 @@ export async function executeOfframp(
         }
       );
 
+      console.log('[offramp] Waiting for fast offramp choice...');
       const savedBankChoice = await conversation.waitForCallbackQuery(['use_saved_bank', 'use_another_bank']);
+      console.log(`[offramp] Choice received: ${savedBankChoice.callbackQuery.data}`);
       await savedBankChoice.answerCallbackQuery();
+
+      // CLEANUP: Remove buttons from the fast offramp prompt
+      try {
+        await ctx.api.editMessageReplyMarkup(ctx.chat!.id, fastOfframpMsg.message_id, { reply_markup: { inline_keyboard: [] } });
+      } catch (err: any) {
+        console.warn('[offramp] Failed to cleanup fast offramp buttons:', err.message);
+      }
 
       if (savedBankChoice.callbackQuery.data === 'use_saved_bank') {
         intent.bank_name = wallet.saved_bank_name;
         intent.account_number = wallet.saved_account_number;
-        // Skip resolution as it was verified when saved
         resolvedName = wallet.saved_recipient_name || 'Verified User';
       }
     }
@@ -167,17 +179,38 @@ export async function executeOfframp(
   };
 
   const summaryMsg = await ctx.reply(summaryText, { parse_mode: 'Markdown', reply_markup: confirmKeyboard });
-  const callbackCtx = await conversation.waitForCallbackQuery(['confirm_offramp', 'cancel_offramp']);
-  await callbackCtx.answerCallbackQuery();
+  
+  console.log(`[IRON-OFFRAMP] Waiting for final confirmation (Epoch: ${sessionEpoch})...`);
+  
+  let finalChoice: string | undefined;
+  while (!finalChoice) {
+    const newUpdate = await conversation.wait();
+    
+    if (newUpdate.callbackQuery) {
+        const data = newUpdate.callbackQuery.data;
+        if (data === 'confirm_offramp' || data === 'cancel_offramp') {
+            finalChoice = data;
+            await newUpdate.answerCallbackQuery();
+            console.log(`[IRON-OFFRAMP] Button caught: ${finalChoice}`);
+        } else {
+            console.log(`[IRON-OFFRAMP] Ignoring unrelated button: ${data}`);
+            await newUpdate.answerCallbackQuery();
+        }
+    } else {
+        console.log(`[IRON-OFFRAMP] Ignoring non-button update`);
+    }
+  }
 
+  // CLEANUP: Remove buttons
   try { await ctx.api.editMessageReplyMarkup(ctx.chat!.id, summaryMsg.message_id, { reply_markup: { inline_keyboard: [] } }); } catch { /* ignore */ }
 
-  if (callbackCtx.callbackQuery.data === 'cancel_offramp') {
+  if (finalChoice === 'cancel_offramp') {
     await ctx.reply('❌ Offramp cancelled.');
     return;
   }
 
   // ── Step 3: PIN ──────────────────────────────────────
+  console.log('[IRON-OFFRAMP] Moving to PIN collection...');
   const pinVerified = await collectAndVerifyPin(conversation, ctx, telegramId);
   if (!pinVerified) return;
 
@@ -204,7 +237,7 @@ export async function executeOfframp(
   } catch (err: any) {
     await updateTransaction(txRecord.id, { status: 'failed', errorMessage: err.message });
     try { if (ctx.chat) await ctx.api.deleteMessage(ctx.chat.id, processingMsg.message_id); } catch { /* ignore */ }
-    await ctx.reply(`❌ *Offramp failed*\n\n${err.message}`, { parse_mode: 'Markdown' });
+    await handleSolanaNetworkError(ctx, err);
     return;
   }
 

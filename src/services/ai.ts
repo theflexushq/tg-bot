@@ -54,25 +54,36 @@ export async function parseIntent(userMessage: string): Promise<ParsedIntent> {
     };
   }
 
-  // 3. Buy USDC (Onramp link)
-  // Format: Buy {amount} USDC
-  const buyUsdcRegex = /^buy\s+(\d+\.?\d*)\s*usdc$/i;
-  const buyUsdcMatch = text.match(buyUsdcRegex);
-  if (buyUsdcMatch) {
+  // 3. Onramp Crypto
+  // Format: Onramp {amount} {USDC|SOL}
+  const onrampRegex = /^onramp\s+(\d+\.?\d*)\s*(usdc|sol)$/i;
+  const onrampMatch = text.match(onrampRegex);
+  if (onrampMatch) {
     return {
-      action: 'BUY_USDC',
-      amount: parseFloat(buyUsdcMatch[1]),
+      action: 'DEPOSIT',
+      amount: parseFloat(onrampMatch[1]),
+      token: onrampMatch[2].toUpperCase() as 'SOL' | 'USDC',
     };
   }
 
-  // 4. Deposit (Bank Transfer Onramp)
-  // Format: Deposit {amount} (naira)
-  const depositRegex = /^deposit\s+(?:₦)?(\d+)(?:\s*naira)?$/i;
-  const depositMatch = text.match(depositRegex);
-  if (depositMatch) {
+  // 4. Deposit
+  // Format: Deposit {amount} (naira|usdc|sol)
+  const depositNairaRegex = /^deposit\s+(?:₦)?(\d+)(?:\s*naira|ngn|₦)?$/i;
+  const depositNairaMatch = text.match(depositNairaRegex);
+  if (depositNairaMatch) {
     return {
       action: 'DEPOSIT',
-      amount_ngn: parseInt(depositMatch[1]),
+      amount_ngn: parseInt(depositNairaMatch[1]),
+    };
+  }
+
+  const depositCryptoRegex = /^deposit\s+(\d+\.?\d*)\s*(usdc|sol)$/i;
+  const depositCryptoMatch = text.match(depositCryptoRegex);
+  if (depositCryptoMatch) {
+    return {
+      action: 'DEPOSIT',
+      amount: parseFloat(depositCryptoMatch[1]),
+      token: depositCryptoMatch[2].toUpperCase() as 'SOL' | 'USDC',
     };
   }
 
@@ -108,9 +119,9 @@ export async function parseIntent(userMessage: string): Promise<ParsedIntent> {
   return {
     action: 'UNKNOWN',
     message: "I didn't quite catch that. Please use one of these formats:\n\n" +
+             "• Onramp 10 USDC / Deposit 1000 Naira\n" +
              "• Send 0.1 SOL to [Address]\n" +
              "• Offramp 10 USDC to [Bank Name]\n" +
-             "• Buy 20 USDC\n" +
              "• Buy 500 airtime for 08012345678",
   };
 }

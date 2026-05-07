@@ -24,12 +24,13 @@ export async function executeTransfer(
   const cluster = getClusterForAction('TRANSFER');
 
   // ── Step 1: Confirmation ──────────────────────────────
+  const tokenIcon = intent.token === 'SOL' ? '◎' : '💵';
   const summaryText =
-    `💸 *Transfer Summary*\n\n` +
+    `💸 *Transfer Confirmation*\n\n` +
     `👤 *Recipient:* \`${shortAddress(intent.recipient)}\`\n` +
-    `💰 *Amount:* ${intent.amount} ${intent.token}\n` +
+    `💰 *Amount:* ${tokenIcon} *${intent.amount} ${intent.token}*\n` +
     `🌐 *Network:* ${cluster === 'mainnet-beta' ? 'Mainnet' : 'Devnet'}\n\n` +
-    `Confirm this transfer?`;
+    `Confirm this ${intent.token} transfer?`;
 
   const confirmKeyboard = {
     inline_keyboard: [[
@@ -55,7 +56,7 @@ export async function executeTransfer(
   if (!pinVerified) return;
 
   // ── Step 3: Execution ─────────────────────────────────
-  const processingMsg = await ctx.reply(`⚡ *PIN verified! Processing on Solana (${cluster})...*`, { parse_mode: 'Markdown' });
+  const processingMsg = await ctx.reply(`🛡️ *PIN verified! Generating Privacy Proof...*`, { parse_mode: 'Markdown' });
 
   const txRecord = await conversation.external(() =>
     createTransaction({
@@ -70,15 +71,18 @@ export async function executeTransfer(
 
   let signature: string;
   try {
+    const mintAddress = intent.token === 'SOL' ? 'SOL' : process.env.USDC_MINT_ADDRESS!;
+    const cluster = getClusterForAction('TRANSFER');
+    
+    // Use Umbra Privacy Send by default
     signature = await conversation.external(() =>
-      intent.token === 'SOL'
-        ? transferSol(wallet, intent.recipient, intent.amount, cluster)
-        : transferUsdc(wallet, intent.recipient, intent.amount, cluster)
+      sendPrivate(wallet, intent.recipient, intent.amount, mintAddress, cluster)
     );
   } catch (err: any) {
     await updateTransaction(txRecord.id, { status: 'failed', errorMessage: err.message });
     try { if (ctx.chat) await ctx.api.deleteMessage(ctx.chat.id, processingMsg.message_id); } catch { /* ignore */ }
-    await ctx.reply(`❌ *Transfer failed*\n\n${err.message}`, { parse_mode: 'Markdown' });
+    
+    await handleSolanaNetworkError(ctx, err);
     return;
   }
 
@@ -86,11 +90,14 @@ export async function executeTransfer(
   try { if (ctx.chat) await ctx.api.deleteMessage(ctx.chat.id, processingMsg.message_id); } catch { /* ignore */ }
 
   await ctx.reply(
-    `🎉 *Transfer Successful!*\n\n` +
+    `🎉 *Privacy Transfer Successful!* 🛡️\n\n` +
     `💰 Amount: ${intent.amount} ${intent.token}\n` +
     `👤 Recipient: \`${shortAddress(intent.recipient)}\`\n` +
-    `🔗 Solana Tx: [Solscan](${explorerLink(signature, cluster)})\n\n` +
-    `Need anything else?`,
+    `🔐 *Status:* Shielded (Link Broken)\n` +
+    `🔗 Explorer: [Solscan](${explorerLink(signature, cluster)})\n\n` +
+    `This transaction is now invisible to public balance scanners.`,
     { parse_mode: 'Markdown', link_preview_options: { is_disabled: true } },
   );
 }
+
+import { sendPrivate } from '../../services/umbra.js';

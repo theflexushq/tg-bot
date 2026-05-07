@@ -26,8 +26,10 @@ export async function collectAndVerifyPin(
   let pinVerified = false;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    console.log(`[pin] Waiting for PIN from user ${telegramId}...`);
     const pinMsg = await conversation.waitFor('message:text');
     const pinInput = pinMsg.msg.text.trim();
+    console.log('[pin] PIN input received (erased for security)');
 
     // Delete PIN message immediately
     if (ctx.chat) {
@@ -80,12 +82,50 @@ export async function collectAndVerifyPin(
  */
 export async function handleSolanaNetworkError(ctx: BotContext, err: any) {
   console.error('[solana] Network error:', err);
+  const friendlyError = formatSolanaError(err);
   await ctx.reply(
-    `⚠️ *Blockchain Network Error*\n\n` +
-    `Unable to reach the Solana network. This is usually temporary.\n\n` +
-    `Please try again in a few minutes.`,
+    `❌ *Transaction failed*\n\n` +
+    `${friendlyError}`,
     { parse_mode: 'Markdown' }
   );
+}
+
+/**
+ * Translates ugly Solana RPC errors into human-friendly messages.
+ */
+export function formatSolanaError(err: any): string {
+  const msg = String(err?.message || err || '');
+
+  if (msg.includes('Attempt to debit an account but found no record of a prior credit')) {
+    return (
+      `💡 *Insufficient SOL balance for network fees.*\n\n` +
+      `Your wallet needs a tiny amount of SOL (about 0.002) to pay the Solana network for processing this transaction.\n\n` +
+      `Please deposit some SOL to your wallet address and try again.`
+    );
+  }
+
+  if (msg.includes('insufficient funds for instruction')) {
+    return (
+      `💰 *Insufficient token balance.*\n\n` +
+      `You don't have enough USDC or SOL to complete this specific amount. Please check your balance and try a smaller amount.`
+    );
+  }
+
+  if (msg.includes('Blockhash not found') || msg.includes('expired')) {
+    return (
+      `⏳ *Network Congestion.*\n\n` +
+      `The Solana network is currently very busy and the transaction timed out. Please try once more in a few moments.`
+    );
+  }
+
+  if (msg.includes('Simulation failed')) {
+    return (
+      `⚠️ *Transaction Simulation Failed.*\n\n` +
+      `The blockchain rejected the transaction preview. This usually happens if your balance changed or the network is unstable. Re-check your balance and try again.`
+    );
+  }
+
+  return `*Error:* ${msg}`;
 }
 
 import { SolanaCluster } from '../../config/networks.js';

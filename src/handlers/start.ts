@@ -7,6 +7,7 @@ import { BotContext } from '../types/context.js';
 import { getWallet, createWallet, setPin } from '../services/wallet.js';
 import { shortAddress, isValidPin } from '../utils/helpers.js';
 import { InlineKeyboard } from 'grammy';
+import { getClusterForAction } from '../config/networks.js';
 
 // ── /start command ────────────────────────────────────────────
 
@@ -172,9 +173,28 @@ export async function setupPinConversation(
 
   await ctx.reply(
     `✅ *PIN set successfully!*\n\n` +
-    `Your wallet is ready. Deposit USDC and SOL to start transacting:\n\n` +
+    `Your wallet is ready. 🛡️ *Privacy Mode enabled by default.*\n\n` +
+    `Deposit USDC and SOL to start transacting privately:\n\n` +
     `\`${(await conversation.external(() => getWallet(telegramId)))?.solana_public_key}\`\n\n` +
     `Try: _"Send 10 USDC to 7Au2r...."_`,
     { parse_mode: 'Markdown' },
   );
+
+  // Auto-register for Umbra in background
+  const finalWallet = await conversation.external(() => getWallet(telegramId));
+  if (finalWallet) {
+    try {
+      await conversation.external(async () => {
+        const cluster = getClusterForAction('TRANSFER');
+        await registerUmbra(finalWallet, cluster);
+        await updateUmbraRegistration(telegramId, true);
+        console.log(`[setup] Umbra auto-registered for ${telegramId}`);
+      });
+    } catch (err) {
+      console.error(`[setup] Umbra registration failed:`, err);
+    }
+  }
 }
+
+import { registerUmbra } from '../services/umbra.js';
+import { updateUmbraRegistration } from '../services/wallet.js';

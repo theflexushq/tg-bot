@@ -54,6 +54,13 @@ export async function handleUserMessage(ctx: BotContext): Promise<void> {
     return;
   }
 
+  // Re-entrance guard: Don't start a new purchase flow if one is already active
+  const activeConversations = await ctx.conversation.active();
+  if (Object.keys(activeConversations).length > 0) {
+    console.log(`[IRON-DISPATCH] User ${ctx.from?.id} already has active conversations: ${Object.keys(activeConversations)}`);
+    return;
+  }
+
   // Enter the purchase conversation
   await ctx.conversation.enter('purchaseFlow');
 }
@@ -115,12 +122,9 @@ export async function purchaseFlowConversation(
       }
       await executeOfframp(conversation, ctx, intent, wallet);
     } 
-    else if (intent.action === 'BUY_USDC') {
-      await executeOnramp(conversation, ctx, intent);
-    } 
-    else if (intent.action === 'DEPOSIT') {
+    else if (intent.action === 'BUY_USDC' || intent.action === 'DEPOSIT') {
       // Deposits are bank based, no crypto balance check needed beforehand
-      await executeDeposit(conversation, ctx, intent);
+      await executeDeposit(conversation, ctx, intent as any);
     }
     else if (intent.action === 'BUY_AIRTIME' || intent.action === 'BUY_DATA') {
       // Balance check for utility depends on NGN quote, handled inside module

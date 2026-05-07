@@ -108,11 +108,11 @@ export async function transferSol(
   const signingKeypair = getSigningKeypair(wallet);
   const senderPublicKey = new PublicKey(wallet.solana_public_key);
   const recipientPublicKey = new PublicKey(recipient);
-
   const lamports = Math.round(amountSol * LAMPORTS_PER_SOL);
+  const minRequired = lamports + 5000; // Transfer amount + standard tx fee
   const balance = await connection.getBalance(senderPublicKey);
-  if (balance < lamports) {
-    throw new Error(`Insufficient SOL balance on ${cluster}. Required: ${amountSol} SOL`);
+  if (balance < minRequired) {
+    throw new Error(`Insufficient SOL for transfer and network fees. You need at least ${amountSol + 0.000005} SOL.`);
   }
 
   const transaction = new Transaction().add(
@@ -123,6 +123,7 @@ export async function transferSol(
     }),
   );
 
+  // ── Standard Flow ──────────────────────────────────────────
   const signature = await sendAndConfirmTransaction(
     connection,
     transaction,
@@ -149,6 +150,13 @@ export async function transferUsdc(
   const signingKeypair = getSigningKeypair(wallet);
   const senderPublicKey = new PublicKey(wallet.solana_public_key);
   const rawAmount = BigInt(Math.round(usdcAmount * Math.pow(10, USDC_DECIMALS)));
+
+  // ── Gas Check ──────────────────────────────────────────
+  // Check if sender has enough SOL for tx fees + potentially creating ATA (~0.002 SOL)
+  const solBalance = await connection.getBalance(senderPublicKey);
+  if (solBalance < 0.002 * LAMPORTS_PER_SOL) {
+    throw new Error(`Insufficient SOL for network fees. You need at least 0.002 SOL for gas.`);
+  }
 
   const senderTokenAccount = await getOrCreateAssociatedTokenAccount(
     connection,
@@ -180,6 +188,9 @@ export async function transferUsdc(
     ),
   );
 
+
+  // ── Standard Flow ──────────────────────────────────────────
+  // Requires user's wallet to have SOL for network fees.
   const signature = await sendAndConfirmTransaction(
     connection,
     transaction,
@@ -199,6 +210,43 @@ export async function getSolBalance(publicKey: string, cluster: SolanaCluster = 
     console.error(`[solana:${cluster}] getSolBalance failed: ${err.message}`);
     throw new Error(`Failed to retrieve SOL balance on ${cluster}: ${err.message}`);
   }
+}
+
+/**
+ * Wraps SOL into WSOL for the user.
+ */
+export async function wrapSol(
+  wallet: UserWallet,
+  amountSol: number,
+  cluster: SolanaCluster = 'devnet'
+): Promise<string> {
+  const connection = getConnection(cluster);
+  const signingKeypair = getSigningKeypair(wallet);
+  const senderPublicKey = new PublicKey(wallet.solana_public_key);
+  const wsolMint = new PublicKey('So11111111111111111111111111111111111111112');
+  const lamports = Math.round(amountSol * LAMPORTS_PER_SOL);
+
+  const ata = await getOrCreateAssociatedTokenAccount(
+    connection,
+    signingKeypair,
+    wsolMint,
+    senderPublicKey
+  );
+
+  const transaction = new Transaction().add(
+    SystemProgram.transfer({
+      fromPubkey: senderPublicKey,
+      toPubkey: ata.address,
+      lamports,
+    }),
+    {
+      keys: [{ pubkey: ata.address, isSigner: false, isWritable: true }],
+      programId: TOKEN_PROGRAM_ID,
+      data: Buffer.from([17]), // SyncNative instruction
+    }
+  );
+
+  return await sendAndConfirmTransaction(connection, transaction, [signingKeypair]);
 }
 
 /**
