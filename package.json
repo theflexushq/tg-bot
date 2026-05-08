@@ -27,7 +27,8 @@
     "node-cron": "^3.0.3",
     "openai": "^4.57.0",
     "paj_ramp": "^1.0.0",
-    "snarkjs": "^0.7.6"
+    "snarkjs": "^0.7.6",
+    "ws": "^8.20.0"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

@@ -1,6 +1,5 @@
-// src/services/supabase.ts
-
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import WebSocket from 'ws';
 
 let _client: SupabaseClient | null = null;
 
@@ -16,6 +15,9 @@ export function getSupabase(): SupabaseClient {
 
   _client = createClient(url, key, {
     auth: { persistSession: false },
+    realtime: {
+      transport: WebSocket as any,
+    },
   });
 
   return _client;
