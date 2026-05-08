@@ -112,12 +112,16 @@ export interface DepositIntent {
   token?: 'USDC' | 'SOL';     // Target token (defaults to USDC)
 }
 
+export interface InquiryIntent {
+  action: 'BALANCE' | 'WALLET' | 'HISTORY' | 'HELP' | 'PROFILE' | 'CANCEL';
+}
+
 export interface UnknownIntent {
   action: 'UNKNOWN';
   message: string;          // clarifying question to ask user
 }
 
-export type ParsedIntent = AirtimeIntent | DataIntent | BillIntent | TransferIntent | OfframpIntent | BuyUsdcIntent | DepositIntent | UnknownIntent;
+export type ParsedIntent = AirtimeIntent | DataIntent | BillIntent | TransferIntent | OfframpIntent | BuyUsdcIntent | DepositIntent | InquiryIntent | UnknownIntent;
 
 // ── Context Extensions ────────────────────────────────────────
 

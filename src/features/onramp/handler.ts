@@ -157,20 +157,32 @@ export async function executeDeposit(
   let ngnAmount = intent.amount_ngn || 0;
   let cryptoAmount = intent.amount || 0;
 
-  if (cryptoAmount > 0 && ngnAmount === 0) {
-    // User said "deposit 1 usdc"
+  console.log(`[deposit] Resolved Intent:`, { action: intent.action, ngnAmount, cryptoAmount, token });
+
+  if (cryptoAmount > 0) {
+    // User specified a crypto amount (e.g. "1 usdc")
+    // We convert this to the required Naira amount including fees
     ngnAmount = await conversation.external(() => calculateNgnForCrypto(cryptoAmount, token));
-  } else if (ngnAmount > 0 && cryptoAmount === 0) {
-    // User said "deposit 10000"
+    console.log(`[deposit] Converted ${cryptoAmount} ${token} to ₦${ngnAmount}`);
+  } else if (ngnAmount > 0) {
+    // User specified a fiat amount (e.g. "1000 naira")
+    // We calculate how much crypto they will receive
     const rate = await conversation.external(() => getNgnPerCrypto(token));
     const feePct = parseFloat(process.env.PLATFORM_FEE_PERCENT ?? '0.5');
     cryptoAmount = (ngnAmount / (rate || 1600)) * (1 - feePct / 100);
+    console.log(`[deposit] Calculated ${cryptoAmount} ${token} for ₦${ngnAmount}`);
   }
 
   // Minimum Amount Check (NGN)
+  // 1 USDC is ~1400 NGN, so it should always pass a 500 NGN minimum.
   const MIN_DEPOSIT_NGN = 500;
   if (ngnAmount < MIN_DEPOSIT_NGN) {
-    await ctx.reply(`❌ *Amount too low*\n\nThe minimum deposit is *${formatNGN(MIN_DEPOSIT_NGN)}*.`, { parse_mode: 'Markdown' });
+    await ctx.reply(
+      `❌ *Amount too low*\n\n` +
+      `The minimum deposit is *${formatNGN(MIN_DEPOSIT_NGN)}*.\n` +
+      `Current value of ${cryptoAmount || ''} ${token} is only *${formatNGN(ngnAmount)}*.`, 
+      { parse_mode: 'Markdown' }
+    );
     return;
   }
 

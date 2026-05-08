@@ -79,7 +79,7 @@ export async function balanceHandler(ctx: BotContext): Promise<void> {
     await ctx.api.deleteMessage(ctx.chat.id, loadingMsg.message_id).catch(() => null);
   }
 
-  const solDisplay = sol > 0 ? `${sol.toFixed(6)} SOL` : `0 SOL ⚠️`;
+  const solDisplay = sol > 0 ? `${sol.toFixed(6)} SOL` : `0 SOL`;
   const solNote = sol > 0
     ? `_Small amount sent by PAJ to cover network fees._`
     : `_No SOL yet. PAJ will send a small amount with your next deposit._`;
@@ -87,9 +87,9 @@ export async function balanceHandler(ctx: BotContext): Promise<void> {
   await ctx.reply(
     `💼 *Your Wallet Balance* (${networkName})\n\n` +
     `💵 *USDC:* ${usdc.toFixed(4)} USDC\n` +
-    `◎ *SOL (for fees):* ${solDisplay}\n` +
+    `💵 *SOL:* ${solDisplay}\n` +
     // `${solNote}\n\n` +
-    `📥 *Deposit address:*\n\`${wallet.solana_public_key}\``,
+    ``,
     { parse_mode: 'Markdown' },
   );
 }

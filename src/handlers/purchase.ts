@@ -23,6 +23,13 @@ import { executeOfframp } from '../features/offramp/handler.js';
 import { executeOnramp, executeDeposit } from '../features/onramp/handler.js';
 import { executeUtility } from '../features/utility/handler.js';
 import { checkBalance } from '../features/shared/conversation.js';
+import { 
+  balanceHandler, 
+  receiveHandler, 
+  historyHandler, 
+  helpHandler, 
+  profileHandler 
+} from './commands.js';
 
 // ── Message handler (entry point from bot.on('message:text')) ─
 
@@ -130,6 +137,25 @@ export async function purchaseFlowConversation(
       // Balance check for utility depends on NGN quote, handled inside module
       await executeUtility(conversation, ctx, intent, wallet);
     } 
+    else if (intent.action === 'BALANCE') {
+      return balanceHandler(ctx);
+    }
+    else if (intent.action === 'WALLET') {
+      return receiveHandler(ctx);
+    }
+    else if (intent.action === 'HISTORY') {
+      return historyHandler(ctx);
+    }
+    else if (intent.action === 'HELP') {
+      return helpHandler(ctx);
+    }
+    else if (intent.action === 'PROFILE') {
+      return profileHandler(ctx);
+    }
+    else if (intent.action === 'CANCEL') {
+      await ctx.reply('❌ Transaction cancelled.');
+      return;
+    }
     else {
       await ctx.reply('⚠️ This transaction type is not supported yet.');
     }

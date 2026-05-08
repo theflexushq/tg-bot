@@ -28,6 +28,7 @@ import {
 } from './handlers/commands.js';
 import { addBankConversation } from './features/offramp/addBank.js';
 import { startTransactionWatcher } from './services/watcher.js';
+import { parseIntent } from './services/ai.js';
 
 // ── Validate env ──────────────────────────────────────────────
 
@@ -107,6 +108,10 @@ bot.on(['message:text', 'edit:text'], async (ctx, next) => {
   const handlers: Record<string, Function> = {
     'profile': profileHandler,
     'export': exportHandler,
+    'cancel': async (ctx: any) => {
+      await ctx.conversation.exit();
+      await ctx.reply('❌ Operation cancelled.');
+    },
     'balance': balanceHandler,
     'wallet': walletHandler,
     'deposit': depositHandler,
@@ -123,7 +128,8 @@ bot.on(['message:text', 'edit:text'], async (ctx, next) => {
     return handlers[lowerText](ctx);
   }
 
-  return next();
+  // AI-Powered Natural Language Dispatcher
+  return handleUserMessage(ctx);
 });
 bot.command('addbank', async (ctx) => {
   await ctx.conversation.enter('addBankConversation');
@@ -191,6 +197,17 @@ async function main() {
   } catch (err) {
     console.warn('⚠️ Could not set bot commands menu:', err);
   }
+
+  // ── Health Check Server (Required for Cloud Run) ──────────
+  const port = process.env.PORT || 8080;
+  const server = (await import('http')).createServer((req, res) => {
+    res.writeHead(200);
+    res.end('Flexus Bot is alive');
+  });
+
+  server.listen(port, () => {
+    console.log(`🤖 Health check server listening on port ${port}`);
+  });
 
   await bot.start({
     onStart: (info) => console.log(`✅ Bot running as @${info.username}`),
